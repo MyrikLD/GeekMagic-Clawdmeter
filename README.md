@@ -1,4 +1,4 @@
-# clawdmeter-rs
+# SmallTV PRO Clawdmeter
 
 Rust firmware for the **GeekMagic SmallTV PRO** (ESP32-WROOM-32) that displays your [Claude Code](https://claude.ai/code) token and request rate-limit usage on the built-in 240×240 ST7789 display.
 
