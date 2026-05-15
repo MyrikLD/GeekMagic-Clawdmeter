@@ -6,14 +6,13 @@ Polls Anthropic API for rate-limit headers and renders them on a 240×240 ST7789
 ## Build
 
 ```bash
-. $HOME/export-esp.sh   # activate xtensa toolchain
-export WIFI_SSID=...
-export WIFI_PASS=...
-export ANTHROPIC_TOKEN=...
-cargo build --release
+export $(grep -v '^#' .env | xargs) && cargo build --release
 ```
 
-Target: `xtensa-esp32-espidf`. Toolchain managed by `espup`.
+`export-esp.sh` is already sourced by the user before launching Claude Code — do NOT run it in commands.
+Credentials (WIFI_SSID, WIFI_PASS, ANTHROPIC_TOKEN) are in `.env`. Load them with `export $(grep -v '^#' .env | xargs)` before building.
+
+Target: `xtensa-esp32-espidf`. Toolchain managed by `espup` — `rust-toolchain.toml` pins it to `esp`.
 ESP-IDF version pinned to `v5.2.3` in `.cargo/config.toml`.
 
 Do NOT use `uv run`. Do NOT add `std::thread::sleep` — use `esp_idf_hal::delay::FreeRtos::delay_ms`.

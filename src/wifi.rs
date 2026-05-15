@@ -1,4 +1,3 @@
-use esp_idf_hal::peripheral::Peripheral;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     nvs::EspDefaultNvsPartition,
@@ -6,7 +5,7 @@ use esp_idf_svc::{
 };
 
 pub fn connect<'d>(
-    modem: impl Peripheral<P = esp_idf_hal::modem::Modem> + 'd,
+    modem: impl esp_idf_hal::modem::WifiModemPeripheral + 'd,
     sysloop: EspSystemEventLoop,
     nvs: EspDefaultNvsPartition,
     ssid: &str,

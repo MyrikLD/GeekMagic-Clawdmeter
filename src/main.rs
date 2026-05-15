@@ -1,4 +1,4 @@
-use esp_idf_hal::{delay::FreeRtos, prelude::*};
+use esp_idf_hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
 use log::info;
 
@@ -58,7 +58,7 @@ fn main() -> anyhow::Result<()> {
         ui::status(&mut disp, "Fetching...")?;
         match api::fetch_usage(ANTHROPIC_TOKEN) {
             Ok(data) => {
-                info!("tokens {}/{}", data.tokens_remaining, data.tokens_limit);
+                info!("5h={:.1}% 7d={:.1}% allowed={}", data.util_5h * 100.0, data.util_7d * 100.0, data.allowed);
                 ui::draw_usage(&mut disp, &data)?;
             }
             Err(e) => {

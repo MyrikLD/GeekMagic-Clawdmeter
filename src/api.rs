@@ -1,37 +1,25 @@
 use embedded_svc::{
     http::client::Client,
-    http::Headers,
     io::Write,
 };
 use esp_idf_svc::http::client::{Configuration as HttpConfig, EspHttpConnection};
 
 #[derive(Debug, Default, Clone)]
 pub struct UsageData {
-    pub tokens_limit: u32,
-    pub tokens_remaining: u32,
-    pub requests_limit: u32,
-    pub requests_remaining: u32,
-    /// ISO-8601 reset timestamp, truncated to 32 chars
-    pub reset_at: heapless::String<32>,
-}
-
-impl UsageData {
-    pub fn tokens_used(&self) -> u32 {
-        self.tokens_limit.saturating_sub(self.tokens_remaining)
-    }
-
-    /// 0.0 – 1.0 fraction of tokens consumed
-    pub fn tokens_fraction(&self) -> f32 {
-        if self.tokens_limit == 0 {
-            return 0.0;
-        }
-        self.tokens_used() as f32 / self.tokens_limit as f32
-    }
+    /// 5-hour window utilization, 0.0–1.0
+    pub util_5h: f32,
+    /// 7-day window utilization, 0.0–1.0
+    pub util_7d: f32,
+    /// Unix timestamp of the 5h window reset
+    pub reset_5h: u32,
+    /// Unix timestamp when this response was received (from HTTP Date header)
+    pub now_ts: u32,
+    /// true = allowed, false = rate limited
+    pub allowed: bool,
 }
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
-// Minimal body — we only care about the response headers
-const BODY: &[u8] = br#"{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}"#;
+const BODY: &[u8] = br#"{"model":"claude-haiku-4-5","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}"#;
 
 pub fn fetch_usage(token: &str) -> anyhow::Result<UsageData> {
     let config = HttpConfig {
@@ -44,10 +32,11 @@ pub fn fetch_usage(token: &str) -> anyhow::Result<UsageData> {
     let mut client = Client::wrap(connection);
 
     let content_len = BODY.len().to_string();
+    let bearer = format!("Bearer {}", token);
     let headers: &[(&str, &str)] = &[
         ("content-type", "application/json"),
         ("content-length", &content_len),
-        ("x-api-key", token),
+        ("Authorization", bearer.as_str()),
         ("anthropic-version", "2023-06-01"),
     ];
 
@@ -57,38 +46,69 @@ pub fn fetch_usage(token: &str) -> anyhow::Result<UsageData> {
     let resp = req.submit()?;
 
     if resp.status() != 200 {
-        // Still extract rate-limit headers on 4xx — they're present even on errors
         log::warn!("HTTP {}", resp.status());
     }
 
-    let mut data = UsageData::default();
+    let mut data = UsageData { allowed: true, ..Default::default() };
 
-    if let Some(v) = resp.header("anthropic-ratelimit-tokens-limit") {
-        data.tokens_limit = v.parse().unwrap_or(0);
+    if let Some(v) = resp.header("anthropic-ratelimit-unified-5h-utilization") {
+        data.util_5h = v.parse().unwrap_or(0.0);
     }
-    if let Some(v) = resp.header("anthropic-ratelimit-tokens-remaining") {
-        data.tokens_remaining = v.parse().unwrap_or(0);
+    if let Some(v) = resp.header("anthropic-ratelimit-unified-7d-utilization") {
+        data.util_7d = v.parse().unwrap_or(0.0);
     }
-    if let Some(v) = resp.header("anthropic-ratelimit-requests-limit") {
-        data.requests_limit = v.parse().unwrap_or(0);
+    if let Some(v) = resp.header("anthropic-ratelimit-unified-5h-reset") {
+        data.reset_5h = v.parse().unwrap_or(0);
     }
-    if let Some(v) = resp.header("anthropic-ratelimit-requests-remaining") {
-        data.requests_remaining = v.parse().unwrap_or(0);
+    if let Some(v) = resp.header("anthropic-ratelimit-unified-status") {
+        data.allowed = v != "rejected";
     }
-    if let Some(v) = resp.header("anthropic-ratelimit-tokens-reset") {
-        let _ = data.reset_at.push_str(&v[..v.len().min(32)]);
+    if let Some(v) = resp.header("date") {
+        data.now_ts = parse_http_date(v);
     }
 
-    // Drain response body to free the connection
     let mut buf = [0u8; 128];
     let mut reader = resp;
     loop {
-        use embedded_svc::io::Read;
-        match reader.read(&mut buf) {
+        match embedded_svc::io::Read::read(&mut reader, &mut buf) {
             Ok(0) | Err(_) => break,
             _ => {}
         }
     }
 
     Ok(data)
+}
+
+/// Parse RFC 7231 date "Thu, 15 May 2026 17:18:08 GMT" → Unix timestamp (approx).
+/// Returns 0 on parse failure.
+fn parse_http_date(s: &str) -> u32 {
+    // format: "Www, DD Mon YYYY HH:MM:SS GMT"
+    let parts: heapless::Vec<&str, 8> = s.split_whitespace().collect();
+    if parts.len() < 6 {
+        return 0;
+    }
+    let day: u32 = parts[1].parse().unwrap_or(0);
+    let mon = match parts[2] {
+        "Jan" => 1u32, "Feb" => 2, "Mar" => 3, "Apr" => 4,
+        "May" => 5, "Jun" => 6, "Jul" => 7, "Aug" => 8,
+        "Sep" => 9, "Oct" => 10, "Nov" => 11, "Dec" => 12,
+        _ => return 0,
+    };
+    let year: u32 = parts[3].parse().unwrap_or(0);
+    let time = parts[4];
+    let tparts: heapless::Vec<&str, 4> = time.split(':').collect();
+    if tparts.len() < 3 { return 0; }
+    let h: u32 = tparts[0].parse().unwrap_or(0);
+    let m: u32 = tparts[1].parse().unwrap_or(0);
+    let sec: u32 = tparts[2].parse().unwrap_or(0);
+
+    // Days since Unix epoch (1970-01-01)
+    let y = year;
+    let leap_days = (y - 1) / 4 - (y - 1) / 100 + (y - 1) / 400;
+    let year_days = (y - 1970) * 365 + leap_days.saturating_sub(477); // 477 = leap days before 1970
+    let is_leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days: [u32; 12] = [31, if is_leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let yday: u32 = month_days[..((mon - 1) as usize)].iter().sum::<u32>() + day - 1;
+
+    (year_days + yday) * 86400 + h * 3600 + m * 60 + sec
 }

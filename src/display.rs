@@ -6,19 +6,16 @@ use embedded_graphics::{
     primitives::Rectangle,
     Pixel,
 };
-use embedded_hal::spi::SpiDevice;
 use esp_idf_hal::{
     delay::FreeRtos,
-    gpio::{Gpio18, Gpio2, Gpio21, Gpio23, Gpio3, Gpio4, Output, PinDriver},
-    peripheral::Peripheral,
+    gpio::{AnyInputPin, Output, OutputPin, PinDriver},
     spi::{
         config::{Config as SpiConfig, DriverConfig, MODE_3},
-        SpiDeviceDriver, SpiDriver, SPI2,
+        SpiAnyPins, SpiDeviceDriver, SpiDriver,
     },
     units::FromValueType,
 };
 
-// ST7789 commands
 const SWRESET: u8 = 0x01;
 const SLPOUT: u8 = 0x11;
 const COLMOD: u8 = 0x3A;
@@ -33,30 +30,27 @@ const DISPON: u8 = 0x29;
 pub const WIDTH: u16 = 240;
 pub const HEIGHT: u16 = 240;
 
-// Row buffer size: one full row of 16-bit pixels
 const ROW_BYTES: usize = WIDTH as usize * 2;
 
 pub struct Display<'d> {
     spi: SpiDeviceDriver<'d, SpiDriver<'d>>,
-    dc: PinDriver<'d, Gpio2, Output>,
+    dc: PinDriver<'d, Output>,
 }
 
 impl<'d> Display<'d> {
     pub fn new(
-        spi2: impl Peripheral<P = SPI2> + 'd,
-        clk: impl Peripheral<P = Gpio18> + 'd,
-        mosi: impl Peripheral<P = Gpio23> + 'd,
-        cs: impl Peripheral<P = Gpio3> + 'd,
-        dc: impl Peripheral<P = Gpio2> + 'd,
-        rst: impl Peripheral<P = Gpio4> + 'd,
-        bl: impl Peripheral<P = Gpio21> + 'd,
+        spi2: impl SpiAnyPins + 'd,
+        clk: impl OutputPin + 'd,
+        mosi: impl OutputPin + 'd,
+        cs: impl OutputPin + 'd,
+        dc: impl OutputPin + 'd,
+        rst: impl OutputPin + 'd,
+        bl: impl OutputPin + 'd,
     ) -> anyhow::Result<Self> {
-        // Backlight on (keep pin live by leaking — it lives for the program duration)
         let mut bl_pin = PinDriver::output(bl)?;
         bl_pin.set_high()?;
         Box::leak(Box::new(bl_pin));
 
-        // Hardware reset
         let mut rst_pin = PinDriver::output(rst)?;
         rst_pin.set_high()?;
         FreeRtos::delay_ms(10);
@@ -72,7 +66,7 @@ impl<'d> Display<'d> {
             spi2,
             clk,
             mosi,
-            Option::<esp_idf_hal::gpio::AnyIOPin>::None, // MISO not needed
+            Option::<AnyInputPin>::None,
             Some(cs),
             &DriverConfig::new(),
             &SpiConfig::new()
@@ -102,60 +96,35 @@ impl<'d> Display<'d> {
         FreeRtos::delay_ms(150);
         self.cmd(SLPOUT)?;
         FreeRtos::delay_ms(10);
-
         self.cmd(COLMOD)?;
-        self.data(&[0x55])?; // 16-bit color (RGB565)
-
+        self.data(&[0x55])?;
         self.cmd(MADCTL)?;
-        self.data(&[0x00])?; // row/col order — adjust if display is rotated
-
-        self.cmd(INVON)?; // ST7789 needs inversion
+        self.data(&[0x00])?;
+        self.cmd(INVON)?;
         self.cmd(NORON)?;
         FreeRtos::delay_ms(10);
         self.cmd(DISPON)?;
         FreeRtos::delay_ms(10);
-
         Ok(())
     }
 
     fn set_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> anyhow::Result<()> {
         self.cmd(CASET)?;
-        self.data(&[
-            (x0 >> 8) as u8,
-            x0 as u8,
-            (x1 >> 8) as u8,
-            x1 as u8,
-        ])?;
+        self.data(&[(x0 >> 8) as u8, x0 as u8, (x1 >> 8) as u8, x1 as u8])?;
         self.cmd(RASET)?;
-        self.data(&[
-            (y0 >> 8) as u8,
-            y0 as u8,
-            (y1 >> 8) as u8,
-            y1 as u8,
-        ])?;
+        self.data(&[(y0 >> 8) as u8, y0 as u8, (y1 >> 8) as u8, y1 as u8])?;
         self.cmd(RAMWR)?;
         Ok(())
     }
 
-    // Efficient bulk fill: send one pre-built row repeatedly
-    fn fill_region(
-        &mut self,
-        x0: u16,
-        y0: u16,
-        x1: u16,
-        y1: u16,
-        color: Rgb565,
-    ) -> anyhow::Result<()> {
+    fn fill_region(&mut self, x0: u16, y0: u16, x1: u16, y1: u16, color: Rgb565) -> anyhow::Result<()> {
         let raw = color.into_storage();
         let hi = (raw >> 8) as u8;
         let lo = raw as u8;
         let w = (x1 - x0 + 1) as usize;
         let h = (y1 - y0 + 1) as usize;
-
         self.set_window(x0, y0, x1, y1)?;
         self.dc.set_high()?;
-
-        // Build one row in a stack buffer and write it h times
         let mut row = [0u8; ROW_BYTES];
         for i in (0..w * 2).step_by(2) {
             row[i] = hi;
