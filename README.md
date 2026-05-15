@@ -2,7 +2,7 @@
 
 Rust firmware for the **GeekMagic SmallTV PRO** (ESP32-WROOM-32) that displays your [Claude Code](https://claude.ai/code) token and request rate-limit usage on the built-in 240×240 ST7789 display.
 
-Inspired by [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter). Instead of a BLE + Python daemon, the ESP32 polls the Anthropic API directly over WiFi every 60 seconds.
+Inspired by [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter). Instead of a BLE + Python daemon, the ESP32 polls the Anthropic API directly over WiFi.
 
 ## Hardware
 
