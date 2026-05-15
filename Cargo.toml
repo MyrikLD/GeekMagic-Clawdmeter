@@ -1,0 +1,31 @@
+[package]
+name = "clawdmeter-rs"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+[[bin]]
+name = "clawdmeter-rs"
+harness = false
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+esp-idf-sys  = { version = "0.35", features = ["binstart"] }
+esp-idf-hal  = "0.44"
+esp-idf-svc  = { version = "0.49", features = ["experimental"] }
+embedded-hal = "1.0"
+embedded-svc = "0.27"
+embedded-graphics = "0.8"
+heapless  = "0.8"
+anyhow    = "1"
+log       = "0.4"
+
+[build-dependencies]
+embuild = "0.31.3"
