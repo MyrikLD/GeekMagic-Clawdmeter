@@ -30,24 +30,7 @@ Inspired by [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter). Instead
 
 ## What it shows
 
-```
-┌─────────────────────────┐
-│      Claude Usage       │  ← orange title bar
-│                         │
-│ 5h:  23.4%              │
-│ [████░░░░░░░░░░░░░░░░]  │  ← green/yellow/red bar
-│                         │
-│ 7d:  61.2%              │
-│ [████████████░░░░░░░░]  │
-│                         │
-│        ALLOWED          │  ← green / red "RATE LIMITED"
-│          23%            │  ← big 5h utilization
-│    5h utilization       │
-│  resets in 2h 14m       │
-└─────────────────────────┘
-```
-
-Bar color: green < 60% used, yellow < 85%, red ≥ 85%.
+![Media](media/image.png)
 
 ## Setup
 
