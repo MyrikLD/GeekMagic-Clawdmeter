@@ -45,6 +45,17 @@ pub fn fetch_usage(token: &str) -> anyhow::Result<UsageData> {
     req.flush()?;
     let resp = req.submit()?;
 
+    if resp.status() == 401 || resp.status() == 403 {
+        let mut buf = [0u8; 128];
+        let mut reader = resp;
+        loop {
+            match embedded_svc::io::Read::read(&mut reader, &mut buf) {
+                Ok(0) | Err(_) => break,
+                _ => {}
+            }
+        }
+        return Err(anyhow::anyhow!("invalid_token"));
+    }
     if resp.status() != 200 {
         log::warn!("HTTP {}", resp.status());
     }

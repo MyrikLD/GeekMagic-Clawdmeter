@@ -11,7 +11,7 @@ Inspired by [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter). Instead
 | MCU | ESP32-D0WDQ6 rev1.0 (dual-core, 240 MHz, 520 KB SRAM, no PSRAM) |
 | Display | ST7789, 240×240, SPI Mode 3 |
 | Crystal | 40 MHz |
-| Board | GeekMagic SmallTV PRO v02-22 |
+| Device | [GeekMagic SmallTV PRO](https://geekmagic.com/products/geekmagic-ultra) v02-22 |
 
 ### Pin wiring
 

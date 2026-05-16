@@ -76,6 +76,13 @@ pub fn draw_usage(disp: &mut Display<'_>, d: &UsageData) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn draw_token_invalid(disp: &mut Display<'_>) -> anyhow::Result<()> {
+    disp.clear(CLAUDE_DARK)?;
+    text_center(disp, "Token Invalid", 100, RED, &FONT_9X18_BOLD)?;
+    text_center(disp, "POST new key to /token", 125, WHITE, &FONT_6X10)?;
+    Ok(())
+}
+
 pub fn draw_error(disp: &mut Display<'_>, msg: &str) -> anyhow::Result<()> {
     disp.clear(CLAUDE_DARK)?;
     text_center(disp, "Error", 90, RED, &FONT_9X18_BOLD)?;

@@ -6,6 +6,10 @@ use esp_idf_svc::{
     nvs::EspDefaultNvsPartition,
 };
 use log::info;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 mod api;
 mod display;
@@ -22,6 +26,17 @@ mod wifi;
 //  GPIO 21  Backlight (high = on)
 
 const POLL_MS: u32 = 60_000;
+
+fn wait_or_wake(flag: &AtomicBool, max_ms: u32) {
+    let mut elapsed = 0u32;
+    while elapsed < max_ms {
+        FreeRtos::delay_ms(500);
+        elapsed += 500;
+        if flag.load(Ordering::Relaxed) {
+            break;
+        }
+    }
+}
 
 // Must be called before Display::new() — GPIO3 is UART0 RX until SPI takes it over.
 fn prompt_line(label: &str) -> String {
@@ -107,6 +122,8 @@ fn main() -> anyhow::Result<()> {
     info!("wifi up, IP: {}", ip_str);
 
     let nvs_srv = nvs.clone();
+    let token_dirty = Arc::new(AtomicBool::new(false));
+    let token_dirty_http = token_dirty.clone();
     let mut _server = EspHttpServer::new(&HttpServerConfig::default())?;
     _server.fn_handler("/token", Method::Post, move |mut req| -> anyhow::Result<()> {
         let mut body = Vec::new();
@@ -121,6 +138,7 @@ fn main() -> anyhow::Result<()> {
         let token = std::str::from_utf8(&body).unwrap_or("").trim();
         if !token.is_empty() {
             nvs::save_token(&nvs_srv, token).ok();
+            token_dirty_http.store(true, Ordering::Relaxed);
             log::info!("token updated via HTTP");
         }
         req.into_ok_response()?.write_all(b"OK\n")?;
@@ -134,9 +152,10 @@ fn main() -> anyhow::Result<()> {
         match nvs::load_token(&nvs)? {
             None => {
                 ui::status(&mut disp, "No token - POST to /token")?;
-                FreeRtos::delay_ms(5_000);
+                wait_or_wake(&token_dirty, 5_000);
             }
             Some(tok) => {
+                token_dirty.store(false, Ordering::Relaxed);
                 ui::status(&mut disp, "Fetching...")?;
                 match api::fetch_usage(&tok) {
                     Ok(data) => {
@@ -148,12 +167,16 @@ fn main() -> anyhow::Result<()> {
                         );
                         ui::draw_usage(&mut disp, &data)?;
                     }
+                    Err(e) if e.to_string() == "invalid_token" => {
+                        log::warn!("token invalid/expired");
+                        ui::draw_token_invalid(&mut disp)?;
+                    }
                     Err(e) => {
                         log::warn!("fetch error: {e:#}");
                         ui::draw_error(&mut disp, &format!("{e:#}"))?;
                     }
                 }
-                FreeRtos::delay_ms(POLL_MS);
+                wait_or_wake(&token_dirty, POLL_MS);
             }
         }
     }
